@@ -6,11 +6,12 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .copilot import build_grounded_suggestion
 from .retrieval import rank_documents
 
 app = FastAPI(
     title="ResolveAI API",
-    version="0.3.0",
+    version="0.4.0",
     description="Backend foundation for the ResolveAI support ticket copilot.",
 )
 
@@ -60,8 +61,22 @@ class KnowledgeDocument(BaseModel):
     created_at: datetime
 
 
+class CopilotSuggestion(BaseModel):
+    suggestion: str
+    source_ids: list[str]
+    needs_review: bool
+    ticket_context: str | None = None
+
+
 tickets: list[Ticket] = []
 knowledge_documents: list[KnowledgeDocument] = []
+
+
+def get_ticket_or_404(ticket_id: str) -> Ticket:
+    for ticket in tickets:
+        if ticket.id == ticket_id:
+            return ticket
+    raise HTTPException(status_code=404, detail="Ticket not found")
 
 
 @app.get("/health")
@@ -87,11 +102,26 @@ def create_ticket(ticket: TicketCreate) -> Ticket:
 
 @app.patch("/tickets/{ticket_id}", response_model=Ticket)
 def update_ticket(ticket_id: str, payload: TicketUpdate) -> Ticket:
-    for ticket in tickets:
-        if ticket.id == ticket_id:
-            ticket.status = payload.status
-            return ticket
-    raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = get_ticket_or_404(ticket_id)
+    ticket.status = payload.status
+    return ticket
+
+
+@app.post("/tickets/{ticket_id}/suggestion", response_model=CopilotSuggestion)
+def create_ticket_suggestion(ticket_id: str) -> CopilotSuggestion:
+    ticket = get_ticket_or_404(ticket_id)
+    query = f"{ticket.subject} {ticket.description}"
+    ranked = rank_documents(
+        query,
+        [document.model_dump() for document in knowledge_documents],
+        limit=3,
+    )
+    suggestion = build_grounded_suggestion(
+        ticket.subject,
+        ticket.description,
+        ranked,
+    )
+    return CopilotSuggestion.model_validate(suggestion)
 
 
 @app.get("/knowledge", response_model=list[KnowledgeDocument])
