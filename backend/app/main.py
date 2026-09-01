@@ -2,9 +2,11 @@ from datetime import datetime, timezone
 from enum import Enum
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from .retrieval import rank_documents
 
 app = FastAPI(
     title="ResolveAI API",
@@ -95,6 +97,19 @@ def update_ticket(ticket_id: str, payload: TicketUpdate) -> Ticket:
 @app.get("/knowledge", response_model=list[KnowledgeDocument])
 def list_knowledge_documents() -> list[KnowledgeDocument]:
     return knowledge_documents
+
+
+@app.get("/knowledge/search", response_model=list[KnowledgeDocument])
+def search_knowledge(
+    q: str = Query(min_length=2, max_length=500),
+    limit: int = Query(default=3, ge=1, le=10),
+) -> list[KnowledgeDocument]:
+    ranked = rank_documents(
+        q,
+        [document.model_dump() for document in knowledge_documents],
+        limit=limit,
+    )
+    return [KnowledgeDocument.model_validate(document) for document in ranked]
 
 
 @app.post("/knowledge", response_model=KnowledgeDocument, status_code=201)
