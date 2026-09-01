@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(
     title="ResolveAI API",
-    version="0.2.0",
+    version="0.3.0",
     description="Backend foundation for the ResolveAI support ticket copilot.",
 )
 
@@ -46,7 +46,20 @@ class Ticket(BaseModel):
     created_at: datetime
 
 
+class KnowledgeDocumentCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=160)
+    content: str = Field(min_length=20, max_length=10000)
+
+
+class KnowledgeDocument(BaseModel):
+    id: str
+    title: str
+    content: str
+    created_at: datetime
+
+
 tickets: list[Ticket] = []
+knowledge_documents: list[KnowledgeDocument] = []
 
 
 @app.get("/health")
@@ -77,3 +90,19 @@ def update_ticket(ticket_id: str, payload: TicketUpdate) -> Ticket:
             ticket.status = payload.status
             return ticket
     raise HTTPException(status_code=404, detail="Ticket not found")
+
+
+@app.get("/knowledge", response_model=list[KnowledgeDocument])
+def list_knowledge_documents() -> list[KnowledgeDocument]:
+    return knowledge_documents
+
+
+@app.post("/knowledge", response_model=KnowledgeDocument, status_code=201)
+def create_knowledge_document(payload: KnowledgeDocumentCreate) -> KnowledgeDocument:
+    document = KnowledgeDocument(
+        id=str(uuid4()),
+        created_at=datetime.now(timezone.utc),
+        **payload.model_dump(),
+    )
+    knowledge_documents.append(document)
+    return document
