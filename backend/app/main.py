@@ -6,12 +6,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .classification import TicketCategory, TicketPriority, classify_ticket
 from .copilot import build_grounded_suggestion
 from .retrieval import rank_documents
 
 app = FastAPI(
     title="ResolveAI API",
-    version="0.4.0",
+    version="0.5.0",
     description="Backend foundation for the ResolveAI support ticket copilot.",
 )
 
@@ -46,6 +47,8 @@ class Ticket(BaseModel):
     description: str
     customer_email: str
     status: TicketStatus = TicketStatus.OPEN
+    category: TicketCategory = TicketCategory.GENERAL
+    priority: TicketPriority = TicketPriority.MEDIUM
     created_at: datetime
 
 
@@ -91,9 +94,12 @@ def list_tickets() -> list[Ticket]:
 
 @app.post("/tickets", response_model=Ticket, status_code=201)
 def create_ticket(ticket: TicketCreate) -> Ticket:
+    category, priority = classify_ticket(ticket.subject, ticket.description)
     created = Ticket(
         id=str(uuid4()),
         created_at=datetime.now(timezone.utc),
+        category=category,
+        priority=priority,
         **ticket.model_dump(),
     )
     tickets.append(created)
