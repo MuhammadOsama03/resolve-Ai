@@ -1,4 +1,6 @@
 export type TicketStatus = "open" | "in_progress" | "resolved";
+export type TicketCategory = "billing" | "access" | "technical" | "account" | "general";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
 
 export type Ticket = {
   id: string;
@@ -6,6 +8,8 @@ export type Ticket = {
   description: string;
   customer_email: string;
   status: TicketStatus;
+  category: TicketCategory;
+  priority: TicketPriority;
   created_at: string;
 };
 
