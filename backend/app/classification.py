@@ -32,14 +32,19 @@ def _contains_any(text: str, keywords: set[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def _category_score(text: str, keywords: set[str]) -> int:
+    """Count repeated keyword evidence instead of treating every match equally."""
+    return sum(text.count(keyword) for keyword in keywords)
+
+
 def classify_ticket(subject: str, description: str) -> tuple[TicketCategory, TicketPriority]:
-    """Classify a ticket with deterministic keyword rules before ML is introduced."""
+    """Classify a ticket with transparent deterministic keyword rules."""
     text = f"{subject} {description}".lower()
 
     category = TicketCategory.GENERAL
     best_score = 0
     for candidate, keywords in CATEGORY_KEYWORDS.items():
-        score = sum(keyword in text for keyword in keywords)
+        score = _category_score(text, keywords)
         if score > best_score:
             category = candidate
             best_score = score
