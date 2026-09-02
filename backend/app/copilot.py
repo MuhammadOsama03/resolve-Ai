@@ -1,5 +1,7 @@
 from collections.abc import Iterable
 
+from .llm import generate_gemini_reply
+
 
 def _compact_excerpt(text: str, limit: int = 220) -> str:
     cleaned = " ".join(text.split())
@@ -8,17 +10,29 @@ def _compact_excerpt(text: str, limit: int = 220) -> str:
     return f"{cleaned[: limit - 1].rstrip()}…"
 
 
+def _build_prompt(subject: str, description: str, sources: list[dict[str, object]]) -> str:
+    evidence = "\n\n".join(
+        f"SOURCE {index + 1} — {source.get('title', 'Support note')}\n"
+        f"{str(source.get('content', ''))}"
+        for index, source in enumerate(sources)
+    )
+    return (
+        "You are a customer-support copilot. Draft a concise, professional reply to the ticket below. "
+        "Use only facts supported by the supplied knowledge sources. If a requested fact is not in the sources, "
+        "say that it needs manual confirmation. Do not invent policies, dates, prices, or actions.\n\n"
+        f"TICKET SUBJECT: {subject}\n"
+        f"TICKET DESCRIPTION: {description}\n\n"
+        f"KNOWLEDGE SOURCES:\n{evidence}\n\n"
+        "Return only the suggested customer reply."
+    )
+
+
 def build_grounded_suggestion(
     subject: str,
     description: str,
     documents: Iterable[dict[str, object]],
 ) -> dict[str, object]:
-    """Compose a safe first-pass reply from retrieved support material.
-
-    This phase deliberately avoids inventing facts. If retrieval finds no
-    relevant source, the copilot returns a review-needed response instead of
-    pretending it has supporting knowledge.
-    """
+    """Compose a first-pass reply grounded in retrieved support material."""
     sources = list(documents)
     if not sources:
         return {
@@ -28,17 +42,25 @@ def build_grounded_suggestion(
             ),
             "source_ids": [],
             "needs_review": True,
+            "provider": "fallback",
         }
 
-    evidence = []
-    source_ids: list[str] = []
-    for source in sources:
-        source_ids.append(str(source.get("id", "")))
-        evidence.append(
-            f"{source.get('title', 'Support note')}: "
-            f"{_compact_excerpt(str(source.get('content', '')))}"
-        )
+    source_ids = [str(source.get("id", "")) for source in sources]
+    generated = generate_gemini_reply(_build_prompt(subject, description, sources))
+    if generated:
+        return {
+            "suggestion": generated,
+            "source_ids": source_ids,
+            "needs_review": True,
+            "ticket_context": _compact_excerpt(description, limit=280),
+            "provider": "gemini",
+        }
 
+    evidence = [
+        f"{source.get('title', 'Support note')}: "
+        f"{_compact_excerpt(str(source.get('content', '')))}"
+        for source in sources
+    ]
     suggestion = (
         f"Regarding '{subject}', here is a response grounded in the available support material:\n\n"
         + "\n\n".join(evidence)
@@ -50,4 +72,5 @@ def build_grounded_suggestion(
         "source_ids": source_ids,
         "needs_review": True,
         "ticket_context": _compact_excerpt(description, limit=280),
+        "provider": "fallback",
     }
