@@ -36,14 +36,22 @@ export type CopilotSuggestion = {
   source_ids: string[];
   needs_review: boolean;
   ticket_context?: string | null;
+  provider: "gemini" | "fallback" | string;
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+async function parseResponse<T>(response: Response, message: string): Promise<T> {
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || message);
+  }
+  return response.json() as Promise<T>;
+}
+
 export async function getTickets(): Promise<Ticket[]> {
   const response = await fetch(`${API_URL}/tickets`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to load tickets");
-  return response.json();
+  return parseResponse<Ticket[]>(response, "Unable to load tickets");
 }
 
 export async function createTicket(input: TicketInput): Promise<Ticket> {
@@ -52,8 +60,7 @@ export async function createTicket(input: TicketInput): Promise<Ticket> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!response.ok) throw new Error("Unable to create ticket");
-  return response.json();
+  return parseResponse<Ticket>(response, "Unable to create ticket");
 }
 
 export async function updateTicketStatus(id: string, status: TicketStatus): Promise<Ticket> {
@@ -62,14 +69,12 @@ export async function updateTicketStatus(id: string, status: TicketStatus): Prom
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
-  if (!response.ok) throw new Error("Unable to update ticket");
-  return response.json();
+  return parseResponse<Ticket>(response, "Unable to update ticket");
 }
 
 export async function getKnowledge(): Promise<KnowledgeDocument[]> {
   const response = await fetch(`${API_URL}/knowledge`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to load knowledge documents");
-  return response.json();
+  return parseResponse<KnowledgeDocument[]>(response, "Unable to load knowledge documents");
 }
 
 export async function createKnowledgeDocument(input: KnowledgeInput): Promise<KnowledgeDocument> {
@@ -78,14 +83,12 @@ export async function createKnowledgeDocument(input: KnowledgeInput): Promise<Kn
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!response.ok) throw new Error("Unable to create knowledge document");
-  return response.json();
+  return parseResponse<KnowledgeDocument>(response, "Unable to create knowledge document");
 }
 
 export async function getTicketSuggestion(id: string): Promise<CopilotSuggestion> {
   const response = await fetch(`${API_URL}/tickets/${id}/suggestion`, {
     method: "POST",
   });
-  if (!response.ok) throw new Error("Unable to generate suggestion");
-  return response.json();
+  return parseResponse<CopilotSuggestion>(response, "Unable to generate suggestion");
 }
