@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   CopilotSuggestion,
@@ -13,6 +13,8 @@ import {
   KnowledgeInput,
   Ticket,
   TicketInput,
+  TicketStatus,
+  updateTicketStatus,
 } from "../lib/api";
 
 const emptyTicket: TicketInput = {
@@ -26,11 +28,7 @@ const emptyKnowledge: KnowledgeInput = {
   content: "",
 };
 
-const cardStyle = {
-  border: "1px solid #ddd",
-  borderRadius: 16,
-  padding: 22,
-} as const;
+const statuses: TicketStatus[] = ["open", "in_progress", "resolved"];
 
 export default function HomePage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -42,7 +40,19 @@ export default function HomePage() {
   const [submittingTicket, setSubmittingTicket] = useState(false);
   const [submittingKnowledge, setSubmittingKnowledge] = useState(false);
   const [suggestingTicket, setSuggestingTicket] = useState<string | null>(null);
+  const [updatingTicket, setUpdatingTicket] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  const metrics = useMemo(() => {
+    const unresolved = tickets.filter((ticket) => ticket.status !== "resolved").length;
+    const urgent = tickets.filter((ticket) => ticket.priority === "urgent").length;
+    return {
+      total: tickets.length,
+      unresolved,
+      urgent,
+      knowledge: knowledge.length,
+    };
+  }, [tickets, knowledge]);
 
   useEffect(() => {
     Promise.all([getTickets(), getKnowledge()])
@@ -64,7 +74,7 @@ export default function HomePage() {
       setTickets((current) => [ticket, ...current]);
       setTicketForm(emptyTicket);
     } catch {
-      setError("Could not create the ticket. Please try again.");
+      setError("Could not create the ticket. Check the form values and try again.");
     } finally {
       setSubmittingTicket(false);
     }
@@ -100,120 +110,187 @@ export default function HomePage() {
     }
   }
 
+  async function handleStatusChange(ticketId: string, status: TicketStatus) {
+    setUpdatingTicket(ticketId);
+    setError("");
+
+    try {
+      const updated = await updateTicketStatus(ticketId, status);
+      setTickets((current) =>
+        current.map((ticket) => (ticket.id === ticketId ? updated : ticket)),
+      );
+    } catch {
+      setError("Could not update the ticket status.");
+    } finally {
+      setUpdatingTicket(null);
+    }
+  }
+
   return (
-    <main style={{ maxWidth: 1120, margin: "0 auto", padding: "48px 24px", fontFamily: "Arial, sans-serif" }}>
-      <header style={{ marginBottom: 36 }}>
-        <p style={{ fontWeight: 700, letterSpacing: 1 }}>ResolveAI</p>
-        <h1 style={{ fontSize: 40, marginBottom: 12 }}>Support copilot workspace</h1>
-        <p style={{ maxWidth: 720, lineHeight: 1.6 }}>
-          Capture support tickets, add trusted company knowledge, and generate first-pass responses that stay tied to retrieved source material.
+    <main className="workspace">
+      <header className="hero">
+        <span className="eyebrow">ResolveAI</span>
+        <h1>Support ticket copilot</h1>
+        <p>
+          Triage incoming requests, maintain a trusted knowledge base, and draft grounded customer replies with source-aware AI assistance.
         </p>
       </header>
 
-      {error && <p role="alert" style={{ padding: 12, border: "1px solid #c66", borderRadius: 10 }}>{error}</p>}
+      <section className="metrics" aria-label="Workspace metrics">
+        <div className="metric"><strong>{metrics.total}</strong><span>Total tickets</span></div>
+        <div className="metric"><strong>{metrics.unresolved}</strong><span>Needs action</span></div>
+        <div className="metric"><strong>{metrics.urgent}</strong><span>Urgent</span></div>
+        <div className="metric"><strong>{metrics.knowledge}</strong><span>Knowledge docs</span></div>
+      </section>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24, marginBottom: 36 }}>
-        <form onSubmit={handleTicketSubmit} style={cardStyle}>
-          <h2 style={{ marginTop: 0 }}>New ticket</h2>
-          <label style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+      {error && <p role="alert" className="alert">{error}</p>}
+
+      <section className="composer-grid">
+        <form onSubmit={handleTicketSubmit} className="card form-stack">
+          <div>
+            <h2>New ticket</h2>
+            <p className="knowledge-count">Category and priority are assigned automatically.</p>
+          </div>
+          <label>
             Subject
             <input
               required
               minLength={3}
+              maxLength={120}
               value={ticketForm.subject}
               onChange={(event) => setTicketForm({ ...ticketForm, subject: event.target.value })}
-              style={{ padding: 10 }}
+              placeholder="Customer cannot access account"
             />
           </label>
-          <label style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+          <label>
             Customer email
             <input
               required
               type="email"
               value={ticketForm.customer_email}
               onChange={(event) => setTicketForm({ ...ticketForm, customer_email: event.target.value })}
-              style={{ padding: 10 }}
+              placeholder="customer@example.com"
             />
           </label>
-          <label style={{ display: "grid", gap: 6, marginBottom: 16 }}>
+          <label>
             Description
             <textarea
               required
               minLength={10}
+              maxLength={4000}
               rows={5}
               value={ticketForm.description}
               onChange={(event) => setTicketForm({ ...ticketForm, description: event.target.value })}
-              style={{ padding: 10, resize: "vertical" }}
+              placeholder="Describe the request and any useful context."
             />
           </label>
-          <button disabled={submittingTicket} type="submit" style={{ padding: "10px 16px", cursor: "pointer" }}>
+          <button disabled={submittingTicket} type="submit">
             {submittingTicket ? "Creating…" : "Create ticket"}
           </button>
         </form>
 
-        <form onSubmit={handleKnowledgeSubmit} style={cardStyle}>
-          <h2 style={{ marginTop: 0 }}>Knowledge base</h2>
-          <p style={{ lineHeight: 1.5 }}>Add trusted support notes that the copilot can retrieve when preparing a response.</p>
-          <label style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+        <form onSubmit={handleKnowledgeSubmit} className="card form-stack">
+          <div>
+            <h2>Knowledge base</h2>
+            <p className="knowledge-count">{knowledge.length} trusted document{knowledge.length === 1 ? "" : "s"} available for retrieval.</p>
+          </div>
+          <label>
             Document title
             <input
               required
               minLength={3}
+              maxLength={160}
               value={knowledgeForm.title}
               onChange={(event) => setKnowledgeForm({ ...knowledgeForm, title: event.target.value })}
-              style={{ padding: 10 }}
+              placeholder="Password reset policy"
             />
           </label>
-          <label style={{ display: "grid", gap: 6, marginBottom: 16 }}>
+          <label>
             Support content
             <textarea
               required
               minLength={20}
+              maxLength={10000}
               rows={7}
               value={knowledgeForm.content}
               onChange={(event) => setKnowledgeForm({ ...knowledgeForm, content: event.target.value })}
-              style={{ padding: 10, resize: "vertical" }}
+              placeholder="Add verified support instructions, policies, or FAQ content."
             />
           </label>
-          <button disabled={submittingKnowledge} type="submit" style={{ padding: "10px 16px", cursor: "pointer" }}>
+          <button disabled={submittingKnowledge} type="submit">
             {submittingKnowledge ? "Adding…" : "Add knowledge"}
           </button>
-          <p style={{ marginBottom: 0, color: "#555" }}>{knowledge.length} document{knowledge.length === 1 ? "" : "s"} available</p>
         </form>
       </section>
 
       <section>
-        <h2>Tickets</h2>
+        <div className="section-head">
+          <div>
+            <h2>Ticket queue</h2>
+            <p>Review automated triage, update workflow state, and request a grounded draft.</p>
+          </div>
+        </div>
+
         {loading ? (
-          <p>Loading workspace…</p>
+          <p className="empty">Loading workspace…</p>
         ) : tickets.length === 0 ? (
-          <p>No tickets yet. Create the first request from the form.</p>
+          <p className="empty">No tickets yet. Create the first support request above.</p>
         ) : (
-          <div style={{ display: "grid", gap: 16 }}>
+          <div className="ticket-list">
             {tickets.map((ticket) => {
               const suggestion = suggestions[ticket.id];
               return (
-                <article key={ticket.id} style={cardStyle}>
-                  <small>{ticket.customer_email} · {ticket.status.replace("_", " ")}</small>
-                  <h3 style={{ margin: "8px 0" }}>{ticket.subject}</h3>
-                  <p style={{ lineHeight: 1.5 }}>{ticket.description}</p>
-                  <button
-                    type="button"
-                    disabled={suggestingTicket === ticket.id}
-                    onClick={() => handleSuggestion(ticket.id)}
-                    style={{ padding: "9px 14px", cursor: "pointer" }}
-                  >
-                    {suggestingTicket === ticket.id ? "Retrieving context…" : "Generate grounded suggestion"}
-                  </button>
+                <article key={ticket.id} className="card">
+                  <div className="ticket-head">
+                    <div>
+                      <div className="ticket-meta">
+                        <span>{ticket.customer_email}</span>
+                        <span>•</span>
+                        <span>{new Date(ticket.created_at).toLocaleString()}</span>
+                      </div>
+                      <h3>{ticket.subject}</h3>
+                    </div>
+                    <div className="badges">
+                      <span className="badge">{ticket.category}</span>
+                      <span className={`badge priority-${ticket.priority}`}>{ticket.priority}</span>
+                    </div>
+                  </div>
+
+                  <p className="ticket-description">{ticket.description}</p>
+
+                  <div className="ticket-actions">
+                    <select
+                      aria-label={`Status for ${ticket.subject}`}
+                      className="status-select"
+                      value={ticket.status}
+                      disabled={updatingTicket === ticket.id}
+                      onChange={(event) => handleStatusChange(ticket.id, event.target.value as TicketStatus)}
+                    >
+                      {statuses.map((status) => (
+                        <option key={status} value={status}>{status.replace("_", " ")}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={suggestingTicket === ticket.id}
+                      onClick={() => handleSuggestion(ticket.id)}
+                    >
+                      {suggestingTicket === ticket.id ? "Retrieving context…" : "Generate grounded reply"}
+                    </button>
+                  </div>
 
                   {suggestion && (
-                    <div style={{ marginTop: 16, padding: 16, background: "#f6f6f6", borderRadius: 12 }}>
-                      <strong>Copilot suggestion</strong>
-                      <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{suggestion.suggestion}</p>
+                    <div className="suggestion">
+                      <div className="ticket-head">
+                        <strong>Copilot suggestion</strong>
+                        <span className="badge">{suggestion.provider === "gemini" ? "Gemini" : "Safe fallback"}</span>
+                      </div>
+                      <p>{suggestion.suggestion}</p>
                       <small>
                         {suggestion.source_ids.length
-                          ? `${suggestion.source_ids.length} knowledge source(s) used · Review before sending`
-                          : "No matching source found · Manual review required"}
+                          ? `${suggestion.source_ids.length} source(s) used · Human review required before sending.`
+                          : "No matching knowledge source found · Manual review required."}
                       </small>
                     </div>
                   )}
