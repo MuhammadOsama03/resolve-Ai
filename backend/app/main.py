@@ -87,6 +87,7 @@ class CopilotSuggestion(BaseModel):
     source_ids: list[str]
     needs_review: bool
     ticket_context: str | None = None
+    provider: str = "fallback"
 
 
 def get_ticket_or_404(ticket_id: str) -> Ticket:
