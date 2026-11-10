@@ -20,6 +20,8 @@ def rank_documents(
     Embeddings/vector search can replace the scoring strategy later without
     changing the API contract.
     """
+    if limit < 1:
+        raise ValueError("limit must be positive")
     query_terms = tokenize(query)
     if not query_terms:
         return []
